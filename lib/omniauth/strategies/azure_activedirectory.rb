@@ -1,5 +1,5 @@
 #-------------------------------------------------------------------------------
-# Copyright (c) 2015 Microsoft Corporation
+# Copyright (c) 2015 Micorosft Corporation
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -24,6 +24,7 @@ require 'jwt'
 require 'omniauth'
 require 'openssl'
 require 'securerandom'
+require 'json/jwt'
 
 module OmniAuth
   module Strategies
@@ -195,7 +196,7 @@ module OmniAuth
       #
       # @return String
       def openid_config_url
-        "https://login.windows.net/#{tenant}/.well-known/openid-configuration"
+        "https://login.microsoftonline.com/#{tenant}/.well-known/openid-configuration?p=#{protocol}"
       end
 
       ##
@@ -257,6 +258,16 @@ module OmniAuth
       end
 
       ##
+      # The potocol of the calling application. Note that this is needed for 
+      # Azure B2C.
+      #
+      # @return String
+      def protocol
+        return session['omniauth-azure-activedirectory.protocol'] if session['omniauth-azure-activedirectory.protocol']
+        fail StandardError, 'No protocol specified with the current request.'
+      end
+
+      ##
       # Verifies the signature of the id token as well as the exp, nbf, iat,
       # iss, and aud fields.
       #
@@ -270,21 +281,24 @@ module OmniAuth
         #
         # If you're thinking that this looks ugly with the raw nil and boolean,
         # see https://github.com/jwt/ruby-jwt/issues/59.
-        jwt_claims, jwt_header =
-          JWT.decode(id_token, nil, true, verify_options) do |header|
-            # There should always be one key from the discovery endpoint that
-            # matches the id in the JWT header.
-            x5c = (signing_keys.find do |key|
-              key['kid'] == header['kid']
-            end || {})['x5c']
-            if x5c.nil? || x5c.empty?
-              fail JWT::VerificationError,
-                   'No keys from key endpoint match the id token'
-            end
-            # The key also contains other fields, such as n and e, that are
-            # redundant. x5c is sufficient to verify the id token.
-            OpenSSL::X509::Certificate.new(JWT.base64url_decode(x5c.first)).public_key
-          end
+        # jwt_claims, jwt_header =
+        #   JWT.decode(id_token, nil, true, verify_options) do |header|
+        #     # There should always be one key from the discovery endpoint that
+        #     # matches the id in the JWT header.
+        #     x5c = (signing_keys.find do |key|
+        #       key['kid'] == header['kid']
+        #     end || {})['x5c']
+        #     if x5c.nil? || x5c.empty?
+        #       fail JWT::VerificationError,
+        #            'No keys from key endpoint match the id token'
+        #     end
+        #     # The key also contains other fields, such as n and e, that are
+        #     # redundant. x5c is sufficient to verify the id token.
+        #     OpenSSL::X509::Certificate.new(JWT.base64url_decode(x5c.first)).public_key
+        #   end
+        jwks = JSON::JWK::Set.new signing_keys
+        jwt_claims = JSON::JWT.decode id_token, jwks
+        jwt_header = {}
         return jwt_claims, jwt_header if jwt_claims['nonce'] == read_nonce
         fail JWT::DecodeError, 'Returned nonce did not match.'
       end
