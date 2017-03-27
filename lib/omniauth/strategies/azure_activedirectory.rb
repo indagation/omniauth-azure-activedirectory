@@ -93,8 +93,12 @@ module OmniAuth
         @claims, @header = validate_and_parse_id_token(@id_token)
         validate_chash(@code, @claims, @header)
         super
+      rescue OAuthError => e
+        fail!(:error, e)
+      rescue => e
+        fail!(:error, e)
       end
-
+      
       private
 
       ##
